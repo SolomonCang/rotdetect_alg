@@ -1,0 +1,1 @@
+"""Scientific core for RotDetect."""

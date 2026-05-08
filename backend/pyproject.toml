@@ -1,0 +1,31 @@
+[project]
+name = "rotdetect"
+version = "0.1.0"
+description = "Minimal RotDetect backend for single-star period-spacing analysis."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.30",
+  "python-multipart>=0.0.9",
+  "pydantic>=2.7",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rotdetect"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
