@@ -5,7 +5,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.pyc
-
+.pytest_cache/
+.venv/
+# Frontend build outputs and dependencies
+frontend/dist/
+frontend/node_modules/
 # Data/examples and documents
 /examples/
 *.pdf
