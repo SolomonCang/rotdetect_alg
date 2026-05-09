@@ -7,6 +7,48 @@
 - [Gamma Dor 型脉动变星渐近等周期间隔自动搜索方案](docs/asymptotic_gmode_period_spacing_search.md)
 - [RotDetect 具体实现架构文档](docs/implementation_architecture.md)
 
+## 安装依赖
+
+### 前置要求
+
+- Python >= 3.11
+- Node.js >= 18
+- npm >= 10
+
+### 后端依赖
+
+后端使用 Python 包管理工具 `uv`。如果未安装，请先安装：
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+然后安装后端依赖：
+
+```bash
+cd backend
+uv sync
+cd ..
+```
+
+或者使用 pip（如果不使用 uv）：
+
+```bash
+cd backend
+pip install -e .
+cd ..
+```
+
+### 前端依赖
+
+安装前端依赖：
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
 ## 本地启动
 
 安装依赖后，可在项目根目录同时启动后端和前端：
