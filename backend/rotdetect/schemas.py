@@ -17,3 +17,6 @@ class SearchConfigPayload(BaseModel):
     max_peaks: int = Field(default=200, ge=5, le=5000)
     peak_threshold_factor: float = Field(default=4.0, gt=0)
     snr_threshold: float = Field(default=4.0, gt=0)
+    frequency_column: str | None = Field(default=None, min_length=1)
+    amplitude_column: str | None = Field(default=None, min_length=1)
+    spectrum_background_path: str | None = Field(default=None, min_length=1)

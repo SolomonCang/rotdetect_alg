@@ -1,0 +1,86 @@
+{
+  "search_config": {
+    "period_min": 0.4,
+    "period_max": 1.0,
+    "delta_p_min": 0.0011574074074074073,
+    "delta_p_max": 0.046296296296296294,
+    "delta_p_grid": 1.1574074074074073e-05,
+    "min_modes": 5,
+    "top_k_candidates": 20,
+    "tolerance_fraction": 0.1,
+    "max_peaks": 200,
+    "peak_threshold_factor": 3.0,
+    "snr_threshold": 4.0,
+    "frequency_column": "col1",
+    "amplitude_column": "col2",
+    "spectrum_background_path": "/Users/tianqi/Documents/Project/rotdetect_alg/examples/KIC004253413_FFT_results.dat"
+  },
+  "parameter_table": [
+    {
+      "name": "period_min",
+      "value": 0.1,
+      "unit": "d",
+      "description": "Minimum period in search range"
+    },
+    {
+      "name": "period_max",
+      "value": 4.0,
+      "unit": "d",
+      "description": "Maximum period in search range"
+    },
+    {
+      "name": "delta_p_min",
+      "value": 0.0011574074074074073,
+      "unit": "d",
+      "description": "Minimum representative period spacing"
+    },
+    {
+      "name": "delta_p_max",
+      "value": 0.046296296296296294,
+      "unit": "d",
+      "description": "Maximum representative period spacing"
+    },
+    {
+      "name": "delta_p_grid",
+      "value": 1.1574074074074073e-05,
+      "unit": "d",
+      "description": "Grid step for Delta_P scan"
+    },
+    {
+      "name": "min_modes",
+      "value": 5,
+      "unit": "count",
+      "description": "Minimum modes required for a valid sequence"
+    },
+    {
+      "name": "top_k_candidates",
+      "value": 20,
+      "unit": "count",
+      "description": "Maximum number of returned candidates"
+    },
+    {
+      "name": "tolerance_fraction",
+      "value": 0.1,
+      "unit": "ratio",
+      "description": "Relative residual tolerance used in fitting"
+    },
+    {
+      "name": "max_peaks",
+      "value": 200,
+      "unit": "count",
+      "description": "Upper limit of extracted peaks"
+    },
+    {
+      "name": "peak_threshold_factor",
+      "value": 3.0,
+      "unit": "sigma",
+      "description": "Peak detection threshold factor"
+    },
+    {
+      "name": "snr_threshold",
+      "value": 4.0,
+      "unit": "ratio",
+      "description": "Minimum SNR for peak filtering"
+    }
+  ]
+}

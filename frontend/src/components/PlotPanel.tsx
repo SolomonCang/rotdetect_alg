@@ -8,6 +8,8 @@ type PlotPanelProps = {
 
 export function PlotPanel({ payload }: PlotPanelProps) {
   const ref = useRef<HTMLDivElement | null>(null);
+  const layoutHeight = payload.layout.height;
+  const style = typeof layoutHeight === "number" ? { height: `${layoutHeight}px` } : undefined;
 
   useEffect(() => {
     if (!ref.current) return;
@@ -23,5 +25,5 @@ export function PlotPanel({ payload }: PlotPanelProps) {
     };
   }, [payload]);
 
-  return <div className="plot-panel" ref={ref} />;
+  return <div className="plot-panel" style={style} ref={ref} />;
 }

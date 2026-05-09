@@ -1,2 +1,11 @@
 /.DS_Store
-/__pycache__
+
+# Python bytecode/cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Data/examples and documents
+/examples/
+*.pdf

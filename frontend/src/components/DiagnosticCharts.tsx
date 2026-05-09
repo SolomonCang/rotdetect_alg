@@ -1,21 +1,48 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { AnalysisResult } from "../types";
+import { buildCandidateTriptychPayload } from "./candidateTriptych";
 import { PlotPanel } from "./PlotPanel";
 
 type DiagnosticChartsProps = {
   result: AnalysisResult | null;
+  selectedCandidateIndex: number;
 };
 
 const tabs = [
+  { key: "candidate_triptych", label: "Candidate diagnostics" },
   { key: "echelle", label: "Echelle" },
-  { key: "period_spacing", label: "P-Delta P" },
-  { key: "scan", label: "Scan" }
+  { key: "period_spacing", label: "Local Delta_P" },
+  { key: "scan", label: "Trend Scan" }
 ] as const;
 
-export function DiagnosticCharts({ result }: DiagnosticChartsProps) {
-  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("echelle");
+function DiagnosticChartsImpl({
+  result,
+  selectedCandidateIndex
+}: DiagnosticChartsProps) {
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]["key"]>("candidate_triptych");
 
-  if (!result) return null;
+  // 只在需要时计算 candidateTriptych，避免不必要的数据构建
+  const candidateTriptych = useMemo(
+    () => {
+      if (!result || activeTab !== "candidate_triptych") return null;
+      return buildCandidateTriptychPayload(result, selectedCandidateIndex);
+    },
+    [activeTab, result, selectedCandidateIndex]
+  );
+
+  const payload = useMemo(
+    () => {
+      if (!result) return null;
+      if (activeTab === "candidate_triptych") {
+        return candidateTriptych;
+      }
+      const plotKey = activeTab as "echelle" | "period_spacing" | "scan";
+      return result.plots[plotKey];
+    },
+    [activeTab, candidateTriptych, result]
+  );
+
+  if (!result || !payload) return null;
 
   return (
     <section className="charts">
@@ -30,7 +57,9 @@ export function DiagnosticCharts({ result }: DiagnosticChartsProps) {
           </button>
         ))}
       </div>
-      <PlotPanel payload={result.plots[activeTab]} />
+      <PlotPanel payload={payload} />
     </section>
   );
 }
+
+export const DiagnosticCharts = memo(DiagnosticChartsImpl);
