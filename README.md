@@ -9,6 +9,20 @@
 
 ## 安装依赖
 
+### 一键安装（推荐）
+
+在项目根目录执行：
+
+```bash
+chmod +x install_deps.sh
+./install_deps.sh
+```
+
+脚本会自动：
+
+- 安装后端依赖（优先使用 `uv sync`，若未安装 `uv` 则回退为 `pip install -e backend`）
+- 安装前端依赖（`npm install`）
+
 ### 前置要求
 
 - Python >= 3.11
