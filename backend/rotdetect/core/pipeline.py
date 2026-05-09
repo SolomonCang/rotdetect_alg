@@ -75,8 +75,10 @@ def _load_spectrum_background_df(
         return fallback_df, None
 
     try:
-        background_path = _resolve_workspace_path(config.spectrum_background_path)
-        background_df = read_frequency_table(background_path.read_bytes(), config)
+        background_path = _resolve_workspace_path(
+            config.spectrum_background_path)
+        background_df = read_frequency_table(background_path.read_bytes(),
+                                             config)
         return background_df, None
     except ValueError as exc:
         return fallback_df, f"Could not load spectrum background; using input data instead: {exc}"
@@ -90,11 +92,14 @@ def _resolve_workspace_path(path_text: str) -> Path:
     try:
         resolved.relative_to(repo_root)
     except ValueError as exc:
-        raise ValueError("Spectrum background path must stay inside the workspace.") from exc
+        raise ValueError(
+            "Spectrum background path must stay inside the workspace."
+        ) from exc
     if not resolved.is_file():
         raise ValueError(f"Spectrum background file not found: {path_text}")
     if resolved.suffix.lower() not in {".csv", ".dat", ".txt"}:
-        raise ValueError("Spectrum background file must be .csv, .dat, or .txt.")
+        raise ValueError(
+            "Spectrum background file must be .csv, .dat, or .txt.")
     return resolved
 
 

@@ -23,7 +23,7 @@ Python 后端读取周期 / 频率并搜索 g 模周期间隔
 
 ### 2.1 输入文件
 
-前端上传一个 CSV 文件，表示一颗星的周期列表或频率列表。
+前端上传一个 CSV / DAT / TXT 文件，表示一颗星的周期列表、频率峰列表或频谱表。
 
 第一版最小输入只需要一列。
 
@@ -63,6 +63,15 @@ frequency,amplitude,snr,frequency_error
 
 如果没有 `amplitude` 列，后端把每一行视为已提取的模式频率或周期，并使用默认权重。若提供 `amplitude`，则在排序和权重计算中使用它。完整频谱表仍可使用 `frequency,amplitude` 输入，此时后端可做简单峰提取。
 
+对于无表头或注释表头的 DAT 文件，前端会生成 `Col 1`、`Col 2` 等列选项。用户可以显式指定：
+
+```text
+frequency_column = col1
+amplitude_column = col2
+```
+
+若不指定，后端按列名和常见 FFT 导出格式自动推断。Candidate diagnostics 的 a 图还支持一个可选背景文件路径 `spectrum_background_path`，该文件只用于绘制黑色背景谱线，不参与搜索。
+
 ### 2.2 输出结果
 
 后端返回一个 JSON，前端直接用它渲染页面：
@@ -94,7 +103,8 @@ frequency,amplitude,snr,frequency_error
   "plots": {
     "echelle": {},
     "period_spacing": {},
-    "scan": {}
+    "scan": {},
+    "spectrum": {}
   },
   "warnings": []
 }
@@ -207,6 +217,11 @@ class SearchConfig:
     top_k_candidates: int = 20
     tolerance_fraction: float = 0.10
     max_peaks: int = 200
+    peak_threshold_factor: float = 4.0
+    snr_threshold: float = 4.0
+    frequency_column: str | None = None
+    amplitude_column: str | None = None
+    spectrum_background_path: str | None = None
 
 @dataclass(frozen=True)
 class PeriodSpacingSequence:
@@ -214,18 +229,37 @@ class PeriodSpacingSequence:
     delta_p_error: float | None
     p0: float
     periods: list[float]
+    amplitudes: list[float]
     radial_orders: list[int]
     residuals: list[float]
     slope: float | None
     n_modes: int
     coverage: float
     confidence_score: float
+    amplitude_score: float
+    amplitude_mean: float
+    amplitude_median: float
+
+@dataclass(frozen=True)
+class AmplitudePeriodCluster:
+    rank: int
+    label: str
+    n_points: int
+    period_min: float
+    period_max: float
+    amplitude_min: float
+    amplitude_max: float
+    amplitude_mean: float
+    amplitude_median: float
+    amplitude_fraction: float
+    period_ranges: list[dict]
 
 @dataclass(frozen=True)
 class AnalysisResult:
     input_summary: dict
     best_sequence: PeriodSpacingSequence | None
     candidates: list[PeriodSpacingSequence]
+    amplitude_period_clusters: list[AmplitudePeriodCluster]
     plots: dict
     warnings: list[str]
 ```
@@ -235,18 +269,22 @@ class AnalysisResult:
 第一版 pipeline：
 
 ```text
-读取 CSV
+读取 CSV / DAT / TXT
+-> 应用显式列映射，或自动推断 period / frequency / amplitude / snr
 -> 判断输入是 period 单列、frequency 单列，还是带 amplitude 的频谱 / 峰列表
 -> 如果只有 period，转换为 frequency = 1 / period
 -> 如果没有 amplitude，使用默认 amplitude = 1.0
 -> 如果是完整频谱表，做简单峰提取
--> 按频率、周期范围和强度筛选峰
+-> 按 S/N、振幅优先级和周期范围筛选峰
 -> frequency -> period
--> Delta_P 网格扫描
+-> 带斜率的 Delta_P 网格扫描
 -> 取 top-k Delta_P 候选
--> 对每个候选做整数阶 RANSAC 拟合
--> 对最佳候选做 P-Delta P 线性趋势拟合
--> 计算 confidence_score
+-> 对每个候选做整数阶序列拟合、链选择和每阶去重
+-> 对候选做 P-Delta P 线性趋势拟合
+-> 计算 confidence_score 和 amplitude_score
+-> 按置信度、振幅优先级、模式数和覆盖范围排序
+-> 计算振幅分层周期范围
+-> 可选读取 spectrum_background_path 作为 a 图背景
 -> 生成前端图表 payload
 -> 返回 JSON
 ```
@@ -278,6 +316,16 @@ max_peaks = 200
 snr >= 4.0
 ```
 
+进入搜索的点会使用振幅和 S/N 派生权重：
+
+```text
+amp_weight = sqrt(max(amplitude, 0) / median(positive_amplitude))
+snr_weight = sqrt(snr / snr_threshold)
+weight = clip(amp_weight * snr_weight, 0.2, 5.0)
+```
+
+该权重参与 `Delta_P` scan、序列链选择、候选评分和振幅优先排序。
+
 这一版峰提取不是最终科学方案，只作为兼容 `frequency,amplitude` 频谱表的补充能力。最小主流程仍是“输入周期或频率单列 -> 点击分析”。
 
 ### 5.4 API
@@ -296,7 +344,14 @@ config={
   "delta_p_max": 0.08,
   "delta_p_grid": 0.0001,
   "min_modes": 5,
-  "max_peaks": 200
+  "top_k_candidates": 20,
+  "tolerance_fraction": 0.10,
+  "max_peaks": 200,
+  "peak_threshold_factor": 4.0,
+  "snr_threshold": 4.0,
+  "frequency_column": "col1",
+  "amplitude_column": "col2",
+  "spectrum_background_path": "examples/KIC004253413_FFT_results.dat"
 }
 ```
 
@@ -311,15 +366,21 @@ config={
   },
   "best_sequence": {
     "delta_p": 0.03142,
+    "delta_p_start": 0.0321,
+    "delta_p_mid": 0.03142,
+    "delta_p_end": 0.0307,
     "n_modes": 12,
     "coverage": 0.47,
     "confidence_score": 0.86,
+    "amplitude_score": 0.91,
     "periods": [0.812, 0.843, 0.875],
+    "amplitudes": [0.42, 0.31, 0.28],
     "radial_orders": [0, 1, 2],
     "residuals": [0.0004, -0.0008, 0.0002],
     "slope": -0.0021
   },
   "candidates": [],
+  "amplitude_period_clusters": [],
   "plots": {
     "echelle": {
       "data": [],
@@ -330,6 +391,10 @@ config={
       "layout": {}
     },
     "scan": {
+      "data": [],
+      "layout": {}
+    },
+    "spectrum": {
       "data": [],
       "layout": {}
     }
@@ -375,16 +440,20 @@ async def analyze(file: UploadFile = File(...), config: str = Form("{}")):
 顶部：RotDetect 标题
 
 左侧控制区：
-  - 上传周期 / 频率 CSV
+  - 上传 CSV / DAT / TXT
+  - 输入列选择
   - 参数设置
+  - a 图背景文件路径
   - 分析按钮
   - 输入摘要 / 错误提示
 
 右侧结果区：
   - 最佳候选摘要
+  - 振幅分层周期范围
   - 候选序列表
+  - Candidate diagnostics 三联图
   - period echelle 图
-  - P-Delta P 图
+  - Local Delta_P 图
   - Delta_P scan 图
 ```
 
@@ -425,8 +494,13 @@ type AnalyzeState =
 | `delta_p_grid` | `0.0001` | select 或 number input |
 | `min_modes` | `5` | number input |
 | `max_peaks` | `200` | number input |
+| `tolerance_fraction` | `0.10` | number input |
+| `snr_threshold` | `4.0` | number input |
+| `frequency_column` | auto | select |
+| `amplitude_column` | auto | select |
+| `spectrum_background_path` | empty | text input |
 
-暂不暴露 RANSAC 迭代次数、评分权重和 FAP 参数，以免第一版界面过重。
+暂不暴露 RANSAC 内部评分权重和 FAP 参数，以免界面过重。
 
 ### 6.5 结果展示
 
@@ -437,6 +511,8 @@ Delta_P
 N_modes
 coverage
 confidence_score
+amplitude_score
+amplitude_median
 slope
 ```
 
@@ -448,14 +524,16 @@ Delta_P
 N_modes
 coverage
 confidence_score
+amplitude_score
 slope
 ```
 
 图表：
 
+- Candidate diagnostics：a 图为背景频谱/峰包络、峰点和序列点；b 图为局部 `Delta_P`；c 图为相对线性序列的残差。
 - period echelle：横轴 `P mod Delta_P`，纵轴 `P`。
-- `P-Delta P`：横轴周期中点，纵轴相邻周期间隔。
-- `Delta_P scan`：横轴候选 `Delta_P`，纵轴扫描分数。
+- Local `Delta_P`：横轴周期中点，纵轴相邻周期间隔。
+- `Delta_P scan`：横轴候选 `Delta_P`，纵轴扫描分数或趋势扫描热图。
 
 点击候选序列表中的一行时，前端切换对应候选的图表数据。第一版如果后端只返回最佳候选，也可以先只展示最佳候选。
 
@@ -491,7 +569,8 @@ slope
   "plots": {
     "echelle": {"data": [], "layout": {}},
     "period_spacing": {"data": [], "layout": {}},
-    "scan": {"data": [], "layout": {}}
+    "scan": {"data": [], "layout": {}},
+    "spectrum": {"data": [], "layout": {}}
   }
 }
 ```
@@ -534,15 +613,21 @@ http://localhost:8000/docs
 
 - 能读取只包含 `period` 一列的 CSV。
 - 能读取只包含 `frequency` 一列的 CSV。
+- 能读取注释表头或无表头 DAT，并支持显式列映射。
 - 若提供 `frequency,amplitude` 频谱表，能从频谱中提取一组峰。
 - 能对提取峰执行 `Delta_P` 扫描和 RANSAC 拟合。
+- 能使用振幅/SNR 权重并返回 `amplitude_score` 与振幅分层范围。
+- 能使用可选背景文件生成 `spectrum` 图 payload。
 - 对合成数据可恢复注入的 `Delta_P`。
 - `/api/analyze` 返回结构化结果和 Plotly 图表 payload。
 
 ### 9.2 前端验收
 
 - 能上传 CSV。
+- 能上传 CSV / DAT / TXT。
+- 能选择频率列和振幅列。
 - 能修改基本搜索参数。
+- 能设置 a 图背景文件路径。
 - 点击“分析”后能调用后端。
 - 分析期间有 loading 状态。
 - 成功后显示最佳候选摘要。

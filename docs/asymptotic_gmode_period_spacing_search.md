@@ -12,6 +12,15 @@
 - 频率误差 `sigma_f`，如果可得
 - 峰来源标记，例如 Kepler、TESS、sector、quarter，若可得
 
+当前实现支持 CSV / DAT / TXT 输入。前端可显式选择哪一列作为频率、哪一列作为振幅；后端也会保留自动推断逻辑。对于常见 FFT 导出的注释表头文件，例如：
+
+```text
+# freq, ampl, phase, S/N
+...
+```
+
+列选择可使用 `col1`、`col2` 等形式映射到实际数据列。
+
 输出是一组候选 g 模周期间隔序列：
 
 - 最佳平均周期间隔 `Delta_P`
@@ -23,6 +32,8 @@
 - 周期覆盖范围 `coverage`
 - 显著性或假警报概率 `FAP`
 - 综合置信度 `confidence_score`
+- 振幅优先级 `amplitude_score`
+- 振幅分层后的周期范围 `amplitude_period_clusters`
 - 诊断图：`P-Delta P` 图与 period echelle 图
 
 核心问题可以抽象为：在含有噪声峰、组合频率、谐波、漏检峰和旋转效应的周期集合中，寻找满足近似关系的子序列：
@@ -77,6 +88,21 @@ sigma_P ~= sigma_f / f^2
 
 实际范围应保留为配置项。Kepler 数据可用更低的噪声阈值，TESS 数据因时间跨度短、频率分辨率较差，默认阈值应更保守。
 
+当前前端暴露的关键配置包括：
+
+```text
+period_min, period_max
+delta_p_min, delta_p_max, delta_p_grid
+min_modes, top_k_candidates
+max_peaks
+tolerance_fraction
+snr_threshold
+frequency_column, amplitude_column
+spectrum_background_path
+```
+
+其中 `frequency_column` 与 `amplitude_column` 只影响输入列映射；`spectrum_background_path` 只影响诊断图 a 图的背景谱线，不参与搜索和候选排序。
+
 ### 3.2 频率清洗
 
 频率列表中常见污染包括：
@@ -105,6 +131,16 @@ w_i = q_snr * q_amp * q_source * q_clean
 - `q_source` 表示多数据源重复检出的可信度。
 - `q_clean` 对疑似组合频率、谐波或仪器峰降权。
 
+当前实现采用一个轻量版本：
+
+```text
+amp_weight = sqrt(max(A, 0) / median(A_positive))
+snr_weight = sqrt((S/N) / snr_threshold)
+w_i = clip(amp_weight * snr_weight, 0.2, 5.0)
+```
+
+若输入包含 `snr` 或 `S/N` 列，会先按 `snr_threshold` 过滤；随后按振幅降序最多保留 `max_peaks` 个峰。这样高振幅、较高 S/N 的周期点会在扫描、拟合和候选排序中自然占优。
+
 ## 4. 总体算法流程
 
 推荐采用三阶段流程：
@@ -117,7 +153,8 @@ w_i = q_snr * q_amp * q_source * q_clean
 -> top-k 候选 Delta_P
 -> RANSAC 整数阶序列拟合
 -> P-Delta P 线性趋势细化
--> bootstrap / shuffle 显著性评估
+-> 振幅优先与趋势合理性排序
+-> 振幅分层周期范围统计
 -> 输出候选序列和诊断图
 ```
 
@@ -127,7 +164,20 @@ w_i = q_snr * q_amp * q_source * q_clean
 - phase 聚集评分负责发现 period echelle 图中的 ridge。
 - RANSAC 负责在大量离群峰中找出可信子序列。
 - 线性趋势细化负责适配 gamma Dor 星常见的旋转斜率。
-- bootstrap 或随机打乱负责估计假阳性概率。
+- 振幅优先排序让高振幅序列在统计分数接近时排在前面。
+- 振幅分层帮助人工复核高、中、低振幅峰分别覆盖的周期范围。
+
+bootstrap 或随机打乱显著性评估仍是后续扩展项；当前交互版主要依赖 `confidence_score`、`amplitude_score`、模式数量、覆盖范围和诊断图进行人工复核。
+
+### 4.1 诊断图背景谱线
+
+Candidate diagnostics 的 a 图默认使用上传输入作为背景谱线或峰包络。对于只上传清洗后峰列表、但希望展示完整 FFT 背景的情况，可以提供 `spectrum_background_path`，例如：
+
+```text
+examples/KIC004253413_FFT_results.dat
+```
+
+该文件会被单独读取并转换为 `spectrum` plot payload，只改变 a 图黑色背景线，不改变搜索使用的峰、权重或候选排序。为了避免误读任意路径，后端只允许读取 workspace 内的 `.csv`、`.dat`、`.txt` 文件。
 
 ## 5. 候选 Delta_P 扫描
 
@@ -255,6 +305,14 @@ tolerance_floor = eta * Delta_P
 eta = 0.05 到 0.20
 ```
 
+当前实现使用 `tolerance_fraction` 表示这里的 `eta`：
+
+```text
+tolerance = max(0.001 d, tolerance_fraction * Delta_P)
+```
+
+对 KIC004253413 这类存在明显递减 `Delta_P` 趋势的序列，`tolerance_fraction = 0.15` 可以恢复人工确认的 19 个模式；默认 `0.10` 更保守，可能漏掉序列端点。
+
 ### 6.3 漏阶处理
 
 真实观测中经常漏掉部分径向阶，因此不要求相邻周期都被检出。对相邻 inliers 的阶差：
@@ -328,6 +386,7 @@ coverage = (max(P_inlier) - min(P_inlier)) / (P_search_max - P_search_min)
 coherence = 1 - robust_std(residual / tolerance)
 gap_score = exp(-lambda_gap * gap_penalty)
 weight_score = mean(w_i of inliers)
+amplitude_score = sum(w_i of inliers) / sum(top-N weights)
 slope_quality = 线性 P-Delta P 拟合优度
 ```
 
@@ -343,6 +402,33 @@ confidence_score =
   + b6 * slope_quality
   - b7 * complexity_penalty
 ```
+
+当前候选排序还会在 `confidence_score` 基础上加入小幅振幅优先项，并对不合理的正斜率和过大的斜率幅度施加惩罚：
+
+```text
+rank_score = confidence_score
+           + 0.08 * amplitude_score
+           - positive_slope_penalty
+           - slope_magnitude_penalty
+           + small_negative_slope_bonus
+```
+
+其中 `amplitude_score` 比较候选序列包含的权重总和与同样数量的全局最高权重点总和，取值约在 `0-1`。它不会单独决定候选，但能在多个候选统计质量接近时优先选择高振幅序列。
+
+### 8.1 振幅分层周期范围
+
+除候选序列外，pipeline 会对进入搜索的周期点按振幅做一维聚类，默认分为高、中、低三层。输出包括：
+
+```text
+label
+n_points
+period_min, period_max
+amplitude_min, amplitude_max, amplitude_mean, amplitude_median
+amplitude_fraction
+period_ranges
+```
+
+`period_ranges` 会把同一振幅层中相隔较远的周期点拆成多个连续范围，用于快速判断高振幅峰是否集中在目标 g 模序列附近。
 
 初始判定阈值可设为：
 
@@ -469,16 +555,16 @@ class PeriodSpacingSequence:
 
 第一版建议只实现端到端可跑通的稳健版本：
 
-1. 输入 CSV：`frequency, amplitude, snr, frequency_error`
+1. 输入 CSV / DAT / TXT，并支持显式列映射。
 2. 转周期并按周期排序。
-3. 使用固定 `Delta_P` 网格做 phase 聚集扫描。
-4. 保留 top 20 个候选。
-5. 对每个候选运行 RANSAC。
-6. 输出最高分序列。
-7. 生成两张 PNG：
-   - `period_spacing.png`
-   - `period_echelle.png`
-8. 使用 200 次随机周期重排估计 FAP。
+3. 使用振幅与 S/N 生成权重，并按振幅保留 `max_peaks`。
+4. 使用带斜率网格的 `Delta_P` scan 做 phase 聚集扫描。
+5. 保留 top 20 个候选。
+6. 对每个候选做整数阶序列拟合、去重和链选择。
+7. 对候选做 P-Delta P 线性趋势细化。
+8. 按 `confidence_score`、`amplitude_score`、模式数和覆盖范围排序。
+9. 输出候选序列、振幅分层范围和 Plotly JSON 诊断图。
+10. 可选使用独立背景文件绘制 Candidate diagnostics 的 a 图黑线。
 
 默认配置：
 
@@ -491,9 +577,26 @@ delta_p_grid = 1e-4 d
 min_modes = 5
 good_modes = 8
 tolerance_fraction = 0.10
+snr_threshold = 4.0
 top_k_candidates = 20
-n_random_fap = 200
+max_peaks = 200
 ```
+
+KIC004253413 的人工确认序列可使用：
+
+```text
+period_min = 0.49 d
+period_max = 0.72 d
+delta_p_min = 0.006 d
+delta_p_max = 0.016 d
+delta_p_grid = 0.00005 d
+max_peaks = 200
+top_k_candidates = 20
+tolerance_fraction = 0.15
+snr_threshold = 4.0
+```
+
+在该配置下，`examples/KIC004253413very_deep_clean.dat` 自动恢复的 19 个周期与人工确认文件第二列逐点一致。
 
 ## 13. 验证标准
 

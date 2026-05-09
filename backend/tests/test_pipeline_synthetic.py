@@ -231,7 +231,8 @@ def test_pipeline_uses_optional_spectrum_background_path() -> None:
             delta_p_grid=0.0002,
             min_modes=6,
             max_peaks=120,
-            spectrum_background_path="backend/tests/_tmp_background_spectrum.dat",
+            spectrum_background_path=
+            "backend/tests/_tmp_background_spectrum.dat",
         )
 
         result = run_pipeline_from_csv_bytes(make_synthetic_peak_csv(), config)
